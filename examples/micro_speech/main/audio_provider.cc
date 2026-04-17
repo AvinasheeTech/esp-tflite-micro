@@ -24,7 +24,7 @@ limitations under the License.
 #include "freertos/FreeRTOS.h"
 // clang-format on
 
-#include "driver/i2s.h"
+#include "i2s.h"   //header file for mic i2s operations
 #include "esp_log.h"
 #include "esp_spi_flash.h"
 #include "esp_system.h"
@@ -63,78 +63,22 @@ int16_t g_audio_output_buffer[kMaxAudioSampleSize * 32];
 bool g_is_audio_initialized = false;
 int16_t g_history_buffer[history_samples_to_keep];
 
+Microphone mic;   //Mems Microphone Instance
+
 #if !NO_I2S_SUPPORT
 uint8_t g_i2s_read_buffer[i2s_bytes_to_read] = {};
-#if CONFIG_IDF_TARGET_ESP32
-i2s_port_t i2s_port = I2S_NUM_1; // for esp32-eye
-#else
-i2s_port_t i2s_port = I2S_NUM_0; // for esp32-s3-eye
-#endif
 #endif
 }  // namespace
-
-#if NO_I2S_SUPPORT
-  // nothing to be done here
-#else
-static void i2s_init(void) {
-  // Start listening for audio: MONO @ 16KHz
-  i2s_config_t i2s_config = {
-      .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
-      .sample_rate = 16000,
-      .bits_per_sample = (i2s_bits_per_sample_t) 16,
-      .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-      .communication_format = I2S_COMM_FORMAT_I2S,
-      .intr_alloc_flags = 0,
-      .dma_buf_count = 3,
-      .dma_buf_len = 300,
-      .use_apll = false,
-      .tx_desc_auto_clear = false,
-      .fixed_mclk = -1,
-  };
-#if CONFIG_IDF_TARGET_ESP32S3
-  i2s_pin_config_t pin_config = {
-      .bck_io_num = 41,    // IIS_SCLK
-      .ws_io_num = 42,     // IIS_LCLK
-      .data_out_num = -1,  // IIS_DSIN
-      .data_in_num = 2,   // IIS_DOUT
-  };
-  i2s_config.bits_per_sample = (i2s_bits_per_sample_t) 32;
-#else
-  i2s_pin_config_t pin_config = {
-      .bck_io_num = 26,    // IIS_SCLK
-      .ws_io_num = 32,     // IIS_LCLK
-      .data_out_num = -1,  // IIS_DSIN
-      .data_in_num = 33,   // IIS_DOUT
-  };
-#endif
-
-  esp_err_t ret = 0;
-  ret = i2s_driver_install(i2s_port, &i2s_config, 0, NULL);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Error in i2s_driver_install");
-  }
-  ret = i2s_set_pin(i2s_port, &pin_config);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Error in i2s_set_pin");
-  }
-
-  ret = i2s_zero_dma_buffer(i2s_port);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Error in initializing dma buffer with 0");
-  }
-}
-#endif
 
 static void CaptureSamples(void* arg) {
 #if NO_I2S_SUPPORT
   ESP_LOGE(TAG, "i2s support not available on C3 chip for IDF < 4.4.0");
 #else
   size_t bytes_read = i2s_bytes_to_read;
-  i2s_init();
+  mic.i2s_setup();  //call i2s setup function for the microphone
   while (1) {
     /* read 100ms data at once from i2s */
-    i2s_read(i2s_port, (void*)g_i2s_read_buffer, i2s_bytes_to_read,
-             &bytes_read, pdMS_TO_TICKS(100));
+    mic.i2s_readsamples((void*)g_i2s_read_buffer,&bytes_read);  //call i2s read function to collect data from microphone
 
     if (bytes_read <= 0) {
       ESP_LOGE(TAG, "Error in I2S read : %d", bytes_read);
